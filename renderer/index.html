@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>ElianBot</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="mark"><i></i><i></i></span><span>ElianBot</span></div>
+    <nav class="tabs">
+      <button id="tab-jobs" class="tab active">Jobs</button>
+      <button id="tab-dash" class="tab">Dashboard</button>
+    </nav>
+    <button id="root-path" class="root" title="Data folder — click to change"></button>
+    <button id="help" class="help" title="How ElianBot works">?</button>
+    <button id="new-job" class="primary">+ New Job</button>
+  </header>
+
+  <main id="jobs-main">
+    <section class="list-panel">
+      <div class="section-head"><span>JOBS</span><span id="job-count"></span></div>
+      <div id="job-list" class="job-list"></div>
+    </section>
+    <section id="detail" class="detail-panel"></section>
+  </main>
+
+  <main id="dash-main" hidden>
+    <section class="cal-panel">
+      <div class="section-head">
+        <span id="cal-title"></span>
+        <span class="cal-nav">
+          <button id="cal-prev" class="secondary">◀</button>
+          <button id="cal-today" class="secondary">Today</button>
+          <button id="cal-next" class="secondary">▶</button>
+        </span>
+      </div>
+      <div class="cal-legend">
+        <span><i class="dot success"></i> ran ok</span>
+        <span><i class="dot error"></i> failed</span>
+        <span><i class="dot planned"></i> scheduled</span>
+      </div>
+      <div id="calendar" class="calendar"></div>
+      <div class="section-head msgs-head"><span>MESSAGES</span><span class="muted-note">@grok mentions · auto-pings · Grok notes</span></div>
+      <div id="messages" class="messages"></div>
+    </section>
+    <section id="day-panel" class="detail-panel"></section>
+  </main>
+
+  <dialog id="help-dialog">
+    <div class="dialog-head log-head">
+      <h2>How ElianBot works</h2>
+      <button type="button" class="close help-close" aria-label="Close">×</button>
+    </div>
+    <div class="manual">
+      <h3>The idea</h3>
+      <p>One job = one <code>.sh</code> file on disk, run by plain code — on a cron
+        schedule or on click. AI (Grok) writes the script once; ElianBot runs it forever,
+        free and deterministic. The app must be open for anything to fire.</p>
+
+      <h3>Jobs</h3>
+      <p>A job is a <b>Name</b>, a <b>Description</b> (a read-only record of the prompt
+        that created it — Grok fills this over MCP; it is never executed and has no
+        effect on runs), and a script — only the script runs. The <b>Repeat</b> dropdowns build the schedule
+        for you (every X minutes / hourly / daily / weekdays / weekly / monthly at a time);
+        the cron field underneath is for power users and always shows the result, with a
+        plain-words preview and the next fire time. The 📁 icon reveals the .sh on disk.
+        Per job: <b>Run now · Pause · Edit · Delete</b>. Delete never touches the script file.</p>
+
+      <h3>Webhook panel — push output to another app</h3>
+      <p>In a job's <b>WEBHOOK</b> panel paste a <b>URL</b> and (optionally) an
+        <b>Authorization</b> value — e.g. from a GrokBot routine: "POST to" goes in the URL
+        field, the "key" goes in the masked field (any paste shape works: bare key,
+        <code>Bearer x</code>, or the full header line). Every successful run then POSTs
+        <code>{source, job, at, output}</code> there. The secret is written straight into
+        <code>secrets.json</code> on this Mac — it can never be read back from the UI,
+        and the feed only ever shows <code>auth=stored</code>.</p>
+
+      <h3>Talking with @ — lines a script prints</h3>
+      <table>
+        <tr><td><code>@grok &lt;text&gt;</code></td><td>posts to the feed — Grok reads it with <code>read_messages</code></td></tr>
+        <tr><td><code>@&lt;job-slug&gt;</code></td><td>runs that job with this output as its input (chains cap at depth 3)</td></tr>
+        <tr><td><code>@notify &lt;text&gt;</code></td><td>macOS notification, immediately</td></tr>
+        <tr><td><code>@webhook &lt;url&gt;</code></td><td>POSTs <code>{job, at, note, output}</code> as JSON to any app</td></tr>
+        <tr><td><code>@webhook &lt;url&gt; auth=&lt;name&gt;</code></td><td>same, plus <code>Authorization: Bearer &lt;token&gt;</code> — the token is read
+          from <code>secrets.json</code> in the data folder under &lt;name&gt;. Put keys there by hand;
+          they never appear in output, the feed, or this chat</td></tr>
+      </table>
+      <p>The slug is the job name lowercased with dashes: “Daily Brief” → <code>@daily-brief</code>.
+        Only lines that <em>start</em> with @ count, and job→job mentions fire only from successful runs.</p>
+
+      <h3>What a script receives</h3>
+      <table>
+        <tr><td><code>$ELIANBOT_INPUT</code></td><td>text handed over by a mention or <code>run_job</code> (first 8 KB)</td></tr>
+        <tr><td><code>$ELIANBOT_INPUT_FILE</code></td><td>path to the full input</td></tr>
+        <tr><td><code>$ELIANBOT_JOB_NAME</code> / <code>$ELIANBOT_JOB_ID</code></td><td>who am I</td></tr>
+        <tr><td><code>$ELIANBOT_LOG</code></td><td>path of this run's log file</td></tr>
+      </table>
+
+      <h3>Auto-ping</h3>
+      <p>Every finished run posts a quiet ping to the feed (success/fail, duration) and
+        fires a macOS notification — failures with sound. Grok sees pings via
+        <code>read_messages</code>; it cannot be woken up, it reads when it next looks.</p>
+
+      <h3>Grok's remote control (MCP)</h3>
+      <p><code>list_jobs · get_job · create_job · update_job · run_job · pause_job ·
+        resume_job · get_output · read_messages · send_message · delete_job</code>.
+        Grok sets each job's name, description (your original prompt), script, schedule,
+        and webhook URL — but never touches secrets. The MCP only edits data files; the
+        open app is the only thing that runs jobs.</p>
+
+      <h3>Dashboard &amp; data</h3>
+      <p>The <b>Dashboard</b> tab: calendar of past runs (green ok, red failed, blue
+        scheduled), click a day for its timeline, click a run for its log; the message
+        feed lives below. The green tab in the header is the data folder — click it to
+        move everything elsewhere (jobs, logs, scripts move along; the choice is
+        remembered).</p>
+    </div>
+  </dialog>
+
+  <dialog id="log-dialog">
+    <div class="dialog-head log-head">
+      <h2 id="log-title">Log</h2>
+      <button type="button" class="close log-close" aria-label="Close">×</button>
+    </div>
+    <pre id="log-body"></pre>
+  </dialog>
+
+  <dialog id="job-dialog">
+    <form id="job-form" method="dialog">
+      <div class="dialog-head">
+        <h2 id="dialog-title">New job</h2>
+        <button type="button" class="close" aria-label="Close">×</button>
+      </div>
+      <label>Name
+        <input name="name" required placeholder="Nightly backup" autocomplete="off" />
+      </label>
+      <label>Description <span class="optional">(written by Grok over MCP — locked here, never executed)</span>
+        <textarea name="description" rows="3" readonly tabindex="-1"
+          placeholder="Grok fills this with the prompt that created the job."></textarea>
+      </label>
+      <label>Shell script
+        <div class="pick-row">
+          <input name="script_path" required placeholder="/Users/you/scripts/backup.sh" autocomplete="off" />
+          <button id="reveal-script" type="button" class="secondary icon" title="Show the .sh file on disk">📁</button>
+          <button id="browse-script" type="button" class="secondary">Choose…</button>
+        </div>
+      </label>
+      <label>Repeat
+        <div class="sched-row">
+          <select id="sched-repeat">
+            <option value="manual">Manual only</option>
+            <option value="minutes">Every X minutes</option>
+            <option value="hourly">Every hour</option>
+            <option value="daily">Every day</option>
+            <option value="weekdays">Weekdays (Mon–Fri)</option>
+            <option value="weekends">Weekends</option>
+            <option value="weekly">Weekly on a day</option>
+            <option value="monthly">Monthly on a date</option>
+            <option value="custom">Custom (cron)</option>
+          </select>
+          <select id="sched-every" hidden>
+            <option value="5">every 5 min</option>
+            <option value="10">every 10 min</option>
+            <option value="15">every 15 min</option>
+            <option value="30">every 30 min</option>
+            <option value="45">every 45 min</option>
+          </select>
+          <select id="sched-day" hidden>
+            <option value="1">Monday</option><option value="2">Tuesday</option>
+            <option value="3">Wednesday</option><option value="4">Thursday</option>
+            <option value="5">Friday</option><option value="6">Saturday</option>
+            <option value="0">Sunday</option>
+          </select>
+          <select id="sched-date" hidden></select>
+          <span id="sched-at" class="sched-at" hidden>
+            <span id="sched-hour-wrap">at <select id="sched-hour"></select> :</span>
+            <select id="sched-min"></select>
+          </span>
+        </div>
+      </label>
+      <label>Cron <span class="optional">(advanced — the dropdowns fill this for you)</span>
+        <input name="schedule_cron" placeholder="0 2 * * *" autocomplete="off" />
+        <small id="cron-hint"></small>
+      </label>
+      <div class="dialog-actions">
+        <button type="button" class="secondary cancel">Cancel</button>
+        <button class="primary" value="save">Save job</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="dashboard.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

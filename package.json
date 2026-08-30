@@ -1,0 +1,18 @@
+{
+  "name": "elianbot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ElianBot — a Grok-controlled local script scheduler. One job = one .sh file on disk.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test.js",
+    "mcp": "node mcp.js"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
+}
